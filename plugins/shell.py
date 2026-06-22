@@ -83,12 +83,25 @@ class ShellPlugin(PluginBase):
                 capture_output=True, timeout=timeout
             )
             parts = []
-            if res.stdout.strip():
-                parts.append(f"```\n{res.stdout.strip()}\n```")
-            if res.stderr.strip():
-                parts.append(f"*stderr:*\n```\n{res.stderr.strip()}\n```")
+            
+            # Truncate massive outputs to save LLM tokens and prevent crashes
+            stdout = res.stdout.strip()
+            if len(stdout) > 2500:
+                stdout = f"[... {len(stdout) - 2500} bytes truncated ...]\n" + stdout[-2500:]
+                
+            if stdout:
+                parts.append(f"```\n{stdout}\n```")
+                
+            stderr = res.stderr.strip()
+            if len(stderr) > 1000:
+                stderr = f"[... {len(stderr) - 1000} bytes truncated ...]\n" + stderr[-1000:]
+                
+            if stderr:
+                parts.append(f"*stderr:*\n```\n{stderr}\n```")
+                
             if res.returncode != 0:
                 parts.append(f"*Exit code: {res.returncode}*")
+                
             return "\n".join(parts) if parts else "✅ Done (no output)"
         except subprocess.TimeoutExpired:
             return f"[Error] Command timed out after {timeout}s."
