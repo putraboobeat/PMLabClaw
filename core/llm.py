@@ -225,6 +225,18 @@ class LLMClient:
 
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="ignore")
+            
+            # Groq bug workaround: If model generates text instead of tool call, Groq throws 400
+            # with the generated text inside 'failedgeneration'. We can just return that text!
+            if e.code == 400 and "failedgeneration" in err_body:
+                try:
+                    err_json = json.loads(err_body)
+                    failed_text = err_json.get("error", {}).get("failedgeneration", "")
+                    if failed_text:
+                        return {"role": "assistant", "content": failed_text}
+                except Exception:
+                    pass
+                    
             raise RuntimeError(f"LLM HTTP {e.code}: {err_body[:300]}")
         except Exception as e:
             raise RuntimeError(f"LLM request failed: {e}")
