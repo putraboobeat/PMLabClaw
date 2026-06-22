@@ -250,7 +250,7 @@ class LLMClient:
                                     "type": "function",
                                     "function": {
                                         "name": match.group(1),
-                                        "arguments": match.group(2)
+                                        "arguments": re.sub(r"^```(?:json)?|```$", "", match.group(2).strip(), flags=re.MULTILINE).strip()
                                     }
                                 }]
                             }

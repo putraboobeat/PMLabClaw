@@ -137,6 +137,11 @@ class Agent:
                     fn_name = tc.get("function", {}).get("name", "")
                     fn_args_str = tc.get("function", {}).get("arguments", "{}")
 
+                    # Llama 3 often hallucinates markdown blocks inside the JSON string
+                    if isinstance(fn_args_str, str):
+                        import re
+                        fn_args_str = re.sub(r"^```(?:json)?|```$", "", fn_args_str.strip(), flags=re.MULTILINE).strip()
+
                     # Intercept if approval is required
                     if self.dispatcher.requires_approval(fn_name):
                         try:
