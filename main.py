@@ -23,39 +23,25 @@ cfg.validate()
 from core.telegram import TelegramClient
 from core.dispatcher import Dispatcher
 from core.agent import Agent
-
-# ── Built-in plugins ──
-from plugins.shell import ShellPlugin
-from plugins.system import SystemPlugin
-from plugins.scheduler import SchedulerPlugin
-from plugins.web import WebPlugin
+from core.plugin_loader import PluginLoader
+from core.event_bus import bus
+from core.memory import memory_db
 
 
 def build_dispatcher(telegram: TelegramClient) -> Dispatcher:
     """
-    Register all plugins with the dispatcher.
-
-    ┌─────────────────────────────────────────────────────┐
-    │  TO ADD A NEW PLUGIN:                               │
-    │  1. Create plugins/my_plugin.py (extend PluginBase) │
-    │  2. Import it here                                  │
-    │  3. Add: dispatcher.register(MyPlugin())            │
-    └─────────────────────────────────────────────────────┘
+    Build dispatcher and dynamically load all plugins from the plugins/ directory.
     """
     dispatcher = Dispatcher()
 
-    # Core capabilities
-    dispatcher.register(ShellPlugin())
-    dispatcher.register(SystemPlugin())
-    dispatcher.register(WebPlugin())
-
-    # Scheduler gets a reference to telegram so it can send notifications
-    dispatcher.register(SchedulerPlugin(telegram_client=telegram))
-
-    # ── ADD YOUR CUSTOM PLUGINS BELOW THIS LINE ──
-    # dispatcher.register(DatabasePlugin())
-    # dispatcher.register(DeployPlugin())
-    # dispatcher.register(FileManagerPlugin())
+    # Create the loader and pass the telegram client to plugins that need it
+    loader = PluginLoader(dispatcher, telegram_client=telegram)
+    
+    # Run the initial load
+    loader.load_all()
+    
+    # Register the reload event on the Event Bus so any plugin can trigger a hot-reload
+    bus.on("reload_plugins", lambda _: loader.load_all())
 
     return dispatcher
 

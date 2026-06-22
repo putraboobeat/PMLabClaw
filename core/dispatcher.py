@@ -34,6 +34,11 @@ class Dispatcher:
         self._plugins: list[PluginBase] = []
         self._tool_map: dict[str, PluginBase] = {}
 
+    def clear(self) -> None:
+        """Clear all registered plugins and tools (used during reload)."""
+        self._plugins.clear()
+        self._tool_map.clear()
+
     def register(self, plugin: PluginBase) -> None:
         """Register a plugin and index all its tools for fast dispatch."""
         self._plugins.append(plugin)

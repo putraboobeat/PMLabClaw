@@ -48,6 +48,13 @@ class PluginBase(ABC):
                     return f"Hello, {args['name']}!"
     """
 
+    def __init__(self, *args, **kwargs):
+        """
+        Base constructor. Accepts generic args/kwargs so PluginLoader can safely
+        pass global context (like telegram_client) to all plugins. 
+        """
+        pass
+
     @property
     @abstractmethod
     def tools(self) -> list[dict]:
