@@ -9,6 +9,7 @@ Zero dependencies — uses urllib only.
 import json
 import urllib.request
 import urllib.error
+import re
 from core.config import cfg
 
 
@@ -55,15 +56,81 @@ class LLMClient:
             return self._chat_openai(messages, tools)
 
     def _chat_openai(self, messages: list[dict], tools: list[dict] | None) -> dict:
-        full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+        sys_prompt = SYSTEM_PROMPT
+        
+        # Check if we need to use prompt-based tools (Atomesus cipher doesn't support native tools)
+        use_prompt_tools = "atomesus.com" in self.endpoint
+
+        if use_prompt_tools and tools:
+            tool_desc = json.dumps(tools, indent=2)
+            sys_prompt += (
+                "\n\n[CRITICAL: TOOL CALLING INSTRUCTIONS]\n"
+                "You must use tools to execute actions on the server.\n"
+                "To use a tool, you MUST output a JSON block like this anywhere in your response:\n"
+                "```tool_call\n"
+                "{\n"
+                "  \"name\": \"function_name\",\n"
+                "  \"arguments\": {\"arg_name\": \"arg_value\"}\n"
+                "}\n"
+                "```\n"
+                f"Available tools:\n{tool_desc}"
+            )
+
+        full_messages = [{"role": "system", "content": sys_prompt}]
+        
+        if use_prompt_tools:
+            # Map existing history to prompt-based format
+            for m in messages:
+                if m["role"] == "assistant" and m.get("tool_calls"):
+                    content = m.get("content", "") or ""
+                    for tc in m["tool_calls"]:
+                        fn = tc["function"]
+                        content += f"\n```tool_call\n{{\"name\": \"{fn['name']}\", \"arguments\": {fn['arguments']}}}\n```"
+                    full_messages.append({"role": "assistant", "content": content})
+                elif m["role"] == "tool":
+                    full_messages.append({
+                        "role": "user", 
+                        "content": f"[Result of tool {m.get('name', 'unknown')}]:\n{m.get('content', '')}"
+                    })
+                else:
+                    full_messages.append(m)
+        else:
+            full_messages.extend(messages)
+
         payload: dict = {
             "model": cfg.MODEL_NAME,
             "messages": full_messages,
         }
-        if tools:
+        
+        if tools and not use_prompt_tools:
             payload["tools"] = tools
 
-        return self._send_request(payload, is_anthropic=False)
+        response = self._send_request(payload, is_anthropic=False)
+        
+        if use_prompt_tools:
+            content = response.get("content", "")
+            if content and "```tool_call" in content:
+                blocks = re.findall(r"```tool_call\n(.*?)\n```", content, re.DOTALL)
+                tool_calls = []
+                for b in blocks:
+                    try:
+                        parsed = json.loads(b)
+                        tool_calls.append({
+                            "id": "call_" + str(hash(b))[-8:].replace("-", "0"),
+                            "type": "function",
+                            "function": {
+                                "name": parsed.get("name", ""),
+                                "arguments": json.dumps(parsed.get("arguments", {}))
+                            }
+                        })
+                    except Exception:
+                        pass
+                
+                if tool_calls:
+                    response["tool_calls"] = tool_calls
+                    response["content"] = re.sub(r"```tool_call\n.*?\n```", "", content, flags=re.DOTALL).strip()
+                    
+        return response
 
     def _chat_anthropic(self, messages: list[dict], tools: list[dict] | None) -> dict:
         anthropic_msgs = []
