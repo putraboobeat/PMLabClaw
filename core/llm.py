@@ -43,6 +43,7 @@ class LLMClient:
             self.headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}",
+                "User-Agent": "Mozilla/5.0 (Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0"
             }
 
     def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
