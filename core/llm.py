@@ -64,16 +64,25 @@ class LLMClient:
         if use_prompt_tools and tools:
             tool_desc = json.dumps(tools, indent=2)
             sys_prompt += (
-                "\n\n[CRITICAL: TOOL CALLING INSTRUCTIONS]\n"
-                "You must use tools to execute actions on the server.\n"
-                "To use a tool, you MUST output a JSON block like this anywhere in your response:\n"
+                "\n\n[ATURAN SANGAT PENTING: AKSES SISTEM & TOOLS]\n"
+                "Kamu adalah administrator VPS ini. Kamu BISA dan MAMPU mengecek sistem.\n"
+                "JANGAN PERNAH berkata kamu tidak bisa mengecek server atau tidak punya akses.\n"
+                "Untuk melihat status VPS, menjalankan perintah terminal, atau membaca file, KAMU WAJIB mengeluarkan blok kode JSON persis seperti ini di dalam balasanmu:\n\n"
                 "```tool_call\n"
                 "{\n"
-                "  \"name\": \"function_name\",\n"
-                "  \"arguments\": {\"arg_name\": \"arg_value\"}\n"
+                "  \"name\": \"nama_tool\",\n"
+                "  \"arguments\": {\"kunci\": \"nilai\"}\n"
                 "}\n"
-                "```\n"
-                f"Available tools:\n{tool_desc}"
+                "```\n\n"
+                "CONTOH JIKA USER BERTANYA 'Cek status VPS':\n"
+                "Tentu, bos! Sebentar aku cek:\n"
+                "```tool_call\n"
+                "{\n"
+                "  \"name\": \"run_command\",\n"
+                "  \"arguments\": {\"command\": \"free -h && uptime\"}\n"
+                "}\n"
+                "```\n\n"
+                f"DAFTAR TOOLS YANG BISA KAMU PAKAI SEKARANG:\n{tool_desc}"
             )
 
         full_messages = [{"role": "system", "content": sys_prompt}]
