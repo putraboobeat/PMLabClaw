@@ -121,9 +121,13 @@ def main() -> None:
     # 4. Build agent with Telegram as the default gateway
     agent = Agent(default_gateway=telegram, dispatcher=dispatcher)
 
-    # 5. Start WhatsApp Webhook Server
+    # 5. Start WhatsApp Webhook Servers (Evolution & StarSender)
     whatsapp_gateway = WhatsAppClient()
     start_whatsapp_webhook(agent, whatsapp_gateway)
+    
+    from core.starsender import StarSenderClient, start_starsender_webhook
+    starsender_gateway = StarSenderClient()
+    start_starsender_webhook(agent, starsender_gateway)
 
     # 6. Notify owner on startup
     startup_msg = (

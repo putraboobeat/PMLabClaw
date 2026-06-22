@@ -43,6 +43,10 @@ class Config:
     ALLOWED_WA_NUMBER: str = os.getenv("ALLOWED_WA_NUMBER", "")
     WHATSAPP_WEBHOOK_PORT: int = int(os.getenv("WHATSAPP_WEBHOOK_PORT", "8080"))
 
+    # --- StarSender V3 (WhatsApp Gateway) ---
+    STARSENDER_API_KEY: str = os.getenv("STARSENDER_API_KEY", "")
+    STARSENDER_WEBHOOK_PORT: int = int(os.getenv("STARSENDER_WEBHOOK_PORT", "8081"))
+
     # --- LLM API ---
     API_KEY: str = os.getenv("API_KEY", "")
     API_BASE_URL: str = os.getenv("API_BASE_URL", "https://agentrouter.org/v1")
