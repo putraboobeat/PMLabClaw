@@ -1,0 +1,12 @@
+{
+  "_README": "This file is auto-managed by SchedulerPlugin. Do not edit manually.",
+  "_FORMAT": {
+    "task_name": {
+      "command": "shell command to run",
+      "interval_seconds": 3600,
+      "notify": true,
+      "last_run": 0,
+      "created_at": "ISO 8601 timestamp"
+    }
+  }
+}

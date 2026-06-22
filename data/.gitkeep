@@ -1,0 +1,3 @@
+# data/.gitkeep
+# This directory holds persistent runtime data (SQLite, JSON state files, etc.)
+# The directory is tracked by git but its contents are excluded via .gitignore.

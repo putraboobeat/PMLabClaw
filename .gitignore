@@ -1,0 +1,29 @@
+# Secrets & Credentials
+.env
+*.key
+*.pem
+
+# Logs
+logs/
+*.log
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Data directory (runtime generated data)
+data/*.json
+data/*.db
+data/*.sqlite
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

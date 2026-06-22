@@ -1,0 +1,22 @@
+[Unit]
+Description=PmlabClaw Personal AI Task Runner v1.0
+Documentation=https://github.com/username/pmlabclaw
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/usr/local/lib/pmlabclaw
+ExecStart=/usr/bin/python3 /usr/local/lib/pmlabclaw/main.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/usr/local/lib/pmlabclaw/logs/pmlabclaw.log
+StandardError=append:/usr/local/lib/pmlabclaw/logs/pmlabclaw.log
+
+# Resource limits — keeps the bot ultra-lightweight
+MemoryMax=128M
+CPUQuota=20%
+
+[Install]
+WantedBy=multi-user.target
