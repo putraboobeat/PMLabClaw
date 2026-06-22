@@ -227,13 +227,36 @@ class LLMClient:
             err_body = e.read().decode("utf-8", errors="ignore")
             
             # Groq bug workaround: If model generates text instead of tool call, Groq throws 400
-            # with the generated text inside 'failedgeneration'. We can just return that text!
-            if e.code == 400 and "failedgeneration" in err_body:
+            # with the generated text inside 'failed_generation' or 'failedgeneration'.
+            if e.code == 400 and ("failedgeneration" in err_body or "failed_generation" in err_body):
                 try:
                     err_json = json.loads(err_body)
-                    failed_text = err_json.get("error", {}).get("failedgeneration", "")
+                    error_data = err_json.get("error", {})
+                    failed_text = error_data.get("failed_generation") or error_data.get("failedgeneration", "")
                     if failed_text:
-                        return {"role": "assistant", "content": failed_text}
+                        import re
+                        # 1. Try to rescue broken tool calls that Groq failed to parse
+                        match = re.search(r"<function=(.*?)>(.*?)(?:</function>|<function>|$)", failed_text, flags=re.DOTALL)
+                        if match:
+                            return {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [{
+                                    "id": "call_groq_rescue",
+                                    "type": "function",
+                                    "function": {
+                                        "name": match.group(1),
+                                        "arguments": match.group(2)
+                                    }
+                                }]
+                            }
+                        
+                        # 2. Otherwise just return the text
+                        clean_text = re.sub(r"<function=.*?>.*?(?:</function>|<function>|$)", "", failed_text, flags=re.DOTALL)
+                        if clean_text.strip():
+                            return {"role": "assistant", "content": clean_text.strip()}
+                        else:
+                            return {"role": "assistant", "content": "Baiklah! 🚀"}
                 except Exception:
                     pass
                     
