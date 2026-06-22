@@ -37,6 +37,12 @@ class Config:
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     ALLOWED_CHAT_ID: str = os.getenv("ALLOWED_CHAT_ID", "")
 
+    # --- WhatsApp (Evolution API / WAHA) ---
+    WHATSAPP_API_URL: str = os.getenv("WHATSAPP_API_URL", "")
+    WHATSAPP_API_KEY: str = os.getenv("WHATSAPP_API_KEY", "")
+    ALLOWED_WA_NUMBER: str = os.getenv("ALLOWED_WA_NUMBER", "")
+    WHATSAPP_WEBHOOK_PORT: int = int(os.getenv("WHATSAPP_WEBHOOK_PORT", "8080"))
+
     # --- LLM API ---
     API_KEY: str = os.getenv("API_KEY", "")
     API_BASE_URL: str = os.getenv("API_BASE_URL", "https://agentrouter.org/v1")

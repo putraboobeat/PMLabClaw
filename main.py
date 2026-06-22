@@ -21,6 +21,7 @@ cfg.validate()
 
 # ── Core modules ──
 from core.telegram import TelegramClient
+from core.whatsapp import WhatsAppClient, start_whatsapp_webhook
 from core.dispatcher import Dispatcher
 from core.agent import Agent
 from core.plugin_loader import PluginLoader
@@ -117,10 +118,14 @@ def main() -> None:
     dispatcher = build_dispatcher(telegram)
     print(f"[Dispatcher] {len(dispatcher.get_all_tools())} tools registered across all plugins.")
 
-    # 4. Build agent
-    agent = Agent(telegram=telegram, dispatcher=dispatcher)
+    # 4. Build agent with Telegram as the default gateway
+    agent = Agent(default_gateway=telegram, dispatcher=dispatcher)
 
-    # 5. Notify owner on startup
+    # 5. Start WhatsApp Webhook Server
+    whatsapp_gateway = WhatsAppClient()
+    start_whatsapp_webhook(agent, whatsapp_gateway)
+
+    # 6. Notify owner on startup
     startup_msg = (
         f"⚡ *{cfg.BOT_NAME} v{cfg.VERSION}* started.\n"
         f"Model: `{cfg.MODEL_NAME}`\n"
@@ -129,7 +134,7 @@ def main() -> None:
     )
     telegram.send_message(cfg.ALLOWED_CHAT_ID, startup_msg)
 
-    # 6. Start polling loop
+    # 7. Start polling loop (Blocks the main thread)
     poll_loop(telegram, agent)
 
 

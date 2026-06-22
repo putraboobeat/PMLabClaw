@@ -13,9 +13,9 @@ import json
 import traceback
 from core.config import cfg
 from core.llm import LLMClient
-from core.telegram import TelegramClient
 from core.dispatcher import Dispatcher
 from core.approval import approval_system
+from core.gateway import BaseGateway
 
 
 class Agent:
@@ -25,23 +25,26 @@ class Agent:
     Attributes:
         history:    Sliding-window conversation history (without system prompt).
         llm:        LLM API client.
-        telegram:   Telegram API client.
+        gateway:    Default messaging gateway.
         dispatcher: Plugin dispatcher.
     """
 
-    def __init__(self, telegram: TelegramClient, dispatcher: Dispatcher):
+    def __init__(self, default_gateway: BaseGateway, dispatcher: Dispatcher):
         self.llm = LLMClient()
-        self.telegram = telegram
+        self.gateway = default_gateway
         self.dispatcher = dispatcher
         self.history: list[dict] = []
 
     # ---- Public Interface ----
 
-    def handle_message(self, chat_id: int | str, text: str) -> None:
+    def handle_message(self, chat_id: int | str, text: str, gateway: BaseGateway = None) -> None:
         """
-        Process a single incoming Telegram message end-to-end.
+        Process a single incoming message end-to-end.
         Routes slash commands first, then passes to the LLM.
         """
+        if gateway:
+            self.gateway = gateway
+        
         text = text.strip()
 
         # Built-in slash commands (no LLM call needed — zero tokens)
@@ -99,7 +102,7 @@ class Agent:
         # Normal conversational message → LLM agent loop
         self.history.append({"role": "user", "content": text})
         self._trim_history()
-        self.telegram.send_action(chat_id, "typing")
+        self.gateway.send_action(chat_id, "typing")
         self._agent_loop(chat_id)
 
     # ---- Agent Loop ----
@@ -167,7 +170,7 @@ class Agent:
                     elif fn_name == "run_script":
                         self._send(chat_id, "⚡ *Running script...*")
 
-                    self.telegram.send_action(chat_id, "typing")
+                    self.gateway.send_action(chat_id, "typing")
                     result = self.dispatcher.execute(fn_name, fn_args_str)
 
                     self.history.append({
@@ -203,7 +206,7 @@ class Agent:
     # ---- Helpers ----
 
     def _send(self, chat_id, text: str) -> None:
-        self.telegram.send_message(chat_id, text)
+        self.gateway.send_message(chat_id, text)
 
     def _reset_history(self) -> None:
         self.history = []

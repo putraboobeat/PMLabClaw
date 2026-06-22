@@ -10,9 +10,10 @@ import json
 import urllib.request
 import urllib.error
 from core.config import cfg
+from core.gateway import BaseGateway
 
 
-class TelegramClient:
+class TelegramClient(BaseGateway):
     """Lightweight Telegram Bot API wrapper."""
 
     BASE_URL = f"https://api.telegram.org/bot{cfg.TELEGRAM_BOT_TOKEN}"
