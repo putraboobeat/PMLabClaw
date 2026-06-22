@@ -15,6 +15,7 @@ from core.config import cfg
 from core.llm import LLMClient
 from core.telegram import TelegramClient
 from core.dispatcher import Dispatcher
+from core.approval import approval_system
 
 
 class Agent:
@@ -73,6 +74,28 @@ class Agent:
             )
             return
 
+        if text.startswith("/approve"):
+            parts = text.split()
+            if len(parts) > 1:
+                req_id = parts[1]
+                data = approval_system.resolve(req_id, approved=True)
+                if data:
+                    self._send(chat_id, f"✅ Request `{req_id}` approved. Executing...")
+                    # Immediately execute the tool
+                    self.history.append({"role": "user", "content": f"Execute approved tool {data['tool_name']}"})
+                    self._run_tool_directly(chat_id, data['tool_name'], data['args'])
+                else:
+                    self._send(chat_id, f"❌ Invalid or expired request ID: `{req_id}`")
+            return
+
+        if text.startswith("/deny"):
+            parts = text.split()
+            if len(parts) > 1:
+                req_id = parts[1]
+                approval_system.resolve(req_id, approved=False)
+                self._send(chat_id, f"🚫 Request `{req_id}` denied.")
+            return
+
         # Normal conversational message → LLM agent loop
         self.history.append({"role": "user", "content": text})
         self._trim_history()
@@ -109,12 +132,35 @@ class Agent:
                 for tc in tool_calls:
                     tc_id = tc.get("id", "")
                     fn_name = tc.get("function", {}).get("name", "")
-                    fn_args = tc.get("function", {}).get("arguments", "{}")
+                    fn_args_str = tc.get("function", {}).get("arguments", "{}")
+
+                    # Intercept if approval is required
+                    if self.dispatcher.requires_approval(fn_name):
+                        try:
+                            fn_args = json.loads(fn_args_str)
+                        except Exception:
+                            fn_args = {}
+                        req_id = approval_system.request_approval(chat_id, fn_name, fn_args)
+                        msg = (
+                            f"⚠️ *Approval Required*\n"
+                            f"Tool: `{fn_name}`\n"
+                            f"Args: `{fn_args_str}`\n\n"
+                            f"Type `/approve {req_id}` to proceed, or `/deny {req_id}` to cancel."
+                        )
+                        self._send(chat_id, msg)
+                        
+                        self.history.append({
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "name": fn_name,
+                            "content": f"[Pending Approval: Request ID {req_id}]"
+                        })
+                        continue
 
                     # Show the user what command is being run
                     if fn_name == "run_command":
                         try:
-                            cmd = json.loads(fn_args).get("command", "")
+                            cmd = json.loads(fn_args_str).get("command", "")
                             self._send(chat_id, f"⚡ `{cmd}`")
                         except Exception:
                             pass
@@ -122,7 +168,7 @@ class Agent:
                         self._send(chat_id, "⚡ *Running script...*")
 
                     self.telegram.send_action(chat_id, "typing")
-                    result = self.dispatcher.execute(fn_name, fn_args)
+                    result = self.dispatcher.execute(fn_name, fn_args_str)
 
                     self.history.append({
                         "role": "tool",

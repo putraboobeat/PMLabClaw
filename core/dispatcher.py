@@ -63,6 +63,13 @@ class Dispatcher:
             lines.append(f"• *{type(plugin).__name__}*: `{'`, `'.join(tool_names)}`")
         return "\n".join(lines) if lines else "No plugins registered."
 
+    def requires_approval(self, tool_name: str) -> bool:
+        """Check if a tool requires user approval before execution."""
+        plugin = self._tool_map.get(tool_name)
+        if plugin:
+            return plugin.requires_approval(tool_name)
+        return False
+
     def execute(self, tool_name: str, args_str: str) -> str:
         """
         Parse args and dispatch a tool call to the correct plugin.

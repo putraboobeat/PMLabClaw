@@ -77,3 +77,9 @@ class PluginBase(ABC):
             A string result to return to the LLM, or None.
         """
         ...
+
+    def requires_approval(self, tool_name: str) -> bool:
+        """
+        Override this to return True for high-risk tools that need manual confirmation.
+        """
+        return False
