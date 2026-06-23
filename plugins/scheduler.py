@@ -204,6 +204,8 @@ class SchedulerPlugin(PluginBase):
             changed = False
 
             for name, task in schedule.items():
+                if not isinstance(task, dict):
+                    continue
                 last_run = task.get("last_run", 0)
                 interval = task.get("interval_seconds", 3600)
 

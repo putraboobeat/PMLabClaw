@@ -198,28 +198,26 @@ class Agent:
                         continue
 
                     # Show the user what tool is being used
+                    try:
+                        args_ui = json.loads(fn_args_str)
+                    except:
+                        args_ui = {}
+
                     if fn_name == "run_command":
-                        try:
-                            cmd = json.loads(fn_args_str).get("command", "")
-                            self._send(chat_id, f"⚡ `{cmd}`")
-                        except Exception:
-                            pass
+                        cmd = args_ui.get("command", "")
+                        self._send(chat_id, f"💻 *Terminal*\n```bash\n$ {cmd}\n```")
                     elif fn_name == "run_script":
-                        self._send(chat_id, "⚡ *Running script...*")
+                        self._send(chat_id, "💻 *Terminal*\n```bash\n# Menjalankan script python...\n```")
                     elif fn_name == "search_web":
-                        try:
-                            args = json.loads(fn_args_str)
-                            qs = args.get("queries", [args.get("query", "")])
-                            self._send(chat_id, f"🔍 *Searching: {', '.join(qs[:3])}...*")
-                        except Exception:
-                            self._send(chat_id, "🔍 *Searching...*")
+                        qs = args_ui.get("queries", [args_ui.get("query", "")])
+                        qs_str = ", ".join(qs)
+                        self._send(chat_id, f"🔍 *Mencari di Internet:*\n```text\nQuery: {qs_str}\n```")
                     elif fn_name == "read_webpage":
-                        try:
-                            url = json.loads(fn_args_str).get("url", "")
-                            short = url[:60] + "..." if len(url) > 60 else url
-                            self._send(chat_id, f"📄 *Reading: {short}*")
-                        except Exception:
-                            self._send(chat_id, "📄 *Reading webpage...*")
+                        url = args_ui.get("url", "")
+                        self._send(chat_id, f"📄 *Membaca Webpage:*\n```text\nURL: {url}\n```")
+                    else:
+                        # Fallback for other tools
+                        self._send(chat_id, f"⚙️ *Menjalankan {fn_name}*\n```json\n{fn_args_str}\n```")
 
                     self.gateway.send_action(chat_id, "typing")
                     result = self.dispatcher.execute(fn_name, fn_args_str)
