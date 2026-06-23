@@ -122,10 +122,75 @@ class Agent:
                 self._send(chat_id, f"❌ LLM Error: {e}")
                 return
 
-            tool_calls = message.get("tool_calls")
+            # ── RAW JSON INTERCEPTION ──
+            # If Llama returns a raw JSON object as text instead of a tool call, convert it
+            content = message.get("content", "") or ""
+            if content.strip().startswith("{") and content.strip().endswith("}"):
+                try:
+                    import re
+                    # Sometimes there are multiple keys, or it's malformed like the screenshot
+                    # Wait, the screenshot had invalid JSON: {"queries": "A", "B", "C"}
+                    # We can try to parse it. Or just use regex to extract query.
+                    parsed = json.loads(content.strip())
+                    if "queries" in parsed or "query" in parsed:
+                        if "tool_calls" not in message:
+                            message["tool_calls"] = []
+                        message["tool_calls"].append({
+                            "id": "call_raw_json",
+                            "type": "function",
+                            "function": {
+                                "name": "search_web",
+                                "arguments": content.strip()
+                            }
+                        })
+                        message["content"] = None
+                    elif "url" in parsed:
+                        if "tool_calls" not in message:
+                            message["tool_calls"] = []
+                        message["tool_calls"].append({
+                            "id": "call_raw_json",
+                            "type": "function",
+                            "function": {
+                                "name": "read_webpage",
+                                "arguments": content.strip()
+                            }
+                        })
+                        message["content"] = None
+                    elif "command" in parsed:
+                        if "tool_calls" not in message:
+                            message["tool_calls"] = []
+                        message["tool_calls"].append({
+                            "id": "call_raw_json",
+                            "type": "function",
+                            "function": {
+                                "name": "run_command",
+                                "arguments": content.strip()
+                            }
+                        })
+                        message["content"] = None
+                except Exception:
+                    # If it's invalid JSON like the screenshot {"queries": "A", "B", "C"}
+                    if '"queries"' in content or '"query"' in content:
+                        import re
+                        # Extract everything that looks like a search term
+                        terms = re.findall(r'"([^"]+)"', content)
+                        terms = [t for t in terms if t not in ('queries', 'query')]
+                        if terms:
+                            if "tool_calls" not in message:
+                                message["tool_calls"] = []
+                            message["tool_calls"].append({
+                                "id": "call_raw_json_regex",
+                                "type": "function",
+                                "function": {
+                                    "name": "search_web",
+                                    "arguments": json.dumps({"queries": terms})
+                                }
+                            })
+                            message["content"] = None
 
             # ── Branch A: LLM wants to call one or more tools ──
-            if tool_calls:
+            if "tool_calls" in message and message["tool_calls"]:
+                tool_calls = message["tool_calls"]
                 # Append assistant's intent to history
                 history_entry = {"role": "assistant", "tool_calls": tool_calls}
                 if message.get("content"):
