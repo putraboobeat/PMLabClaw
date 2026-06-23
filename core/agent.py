@@ -191,6 +191,14 @@ class Agent:
             # ── Branch A: LLM wants to call one or more tools ──
             if "tool_calls" in message and message["tool_calls"]:
                 tool_calls = message["tool_calls"]
+                
+                # Sanitize arguments before adding to history to prevent API crashes (400 Bad Request)
+                for tc in tool_calls:
+                    if tc.get("function") and not isinstance(tc["function"].get("arguments"), str):
+                        tc["function"]["arguments"] = "{}"
+                    elif tc.get("function") and tc["function"].get("arguments", "").strip() in ("null", "", "None"):
+                        tc["function"]["arguments"] = "{}"
+
                 # Append assistant's intent to history
                 history_entry = {"role": "assistant", "tool_calls": tool_calls}
                 if message.get("content"):
