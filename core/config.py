@@ -53,8 +53,8 @@ class Config:
     MODEL_NAME: str = os.getenv("MODEL_NAME", "deepseek-v4-flash")
 
     # --- Agent Behavior ---
-    MAX_TOOL_ITERATIONS: int = int(os.getenv("MAX_TOOL_ITERATIONS", "5"))
-    MAX_HISTORY_LENGTH: int = int(os.getenv("MAX_HISTORY_LENGTH", "20"))
+    MAX_TOOL_ITERATIONS: int = int(os.getenv("MAX_TOOL_ITERATIONS", "10"))
+    MAX_HISTORY_LENGTH: int = int(os.getenv("MAX_HISTORY_LENGTH", "30"))
     TELEGRAM_POLL_TIMEOUT: int = int(os.getenv("TELEGRAM_POLL_TIMEOUT", "50"))
     SHELL_TIMEOUT: int = int(os.getenv("SHELL_TIMEOUT", "30"))
 

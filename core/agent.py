@@ -11,6 +11,7 @@ in main.py; this module handles everything that happens per-message.
 
 import json
 import traceback
+import urllib.parse
 from core.config import cfg
 from core.llm import LLMClient
 from core.dispatcher import Dispatcher
@@ -142,6 +143,37 @@ class Agent:
                         import re
                         fn_args_str = re.sub(r"^```(?:json)?|```$", "", fn_args_str.strip(), flags=re.MULTILINE).strip()
 
+                    # ── CURL INTERCEPTION ──
+                    # If the LLM tries to use run_command with curl for web search,
+                    # redirect to the proper search_web or read_webpage tool
+                    if fn_name == "run_command":
+                        try:
+                            cmd_args = json.loads(fn_args_str)
+                            cmd = cmd_args.get("command", "")
+                            if "curl" in cmd.lower():
+                                import re as _re
+                                # Extract URL from curl command
+                                url_match = _re.search(r'https?://[^\s"\']+', cmd)
+                                if url_match:
+                                    curl_url = url_match.group(0)
+                                    # If it's a search engine URL, redirect to search_web
+                                    if any(s in curl_url.lower() for s in ["google.com/search", "duckduckgo.com", "bing.com/search"]):
+                                        q_match = _re.search(r'[?&]q=([^&]+)', curl_url)
+                                        query = urllib.parse.unquote_plus(q_match.group(1)) if q_match else ""
+                                        if query:
+                                            fn_name = "search_web"
+                                            fn_args_str = json.dumps({"queries": [query]})
+                                            tc["function"]["name"] = fn_name
+                                            tc["function"]["arguments"] = fn_args_str
+                                    else:
+                                        # Non-search URL — redirect to read_webpage
+                                        fn_name = "read_webpage"
+                                        fn_args_str = json.dumps({"url": curl_url})
+                                        tc["function"]["name"] = fn_name
+                                        tc["function"]["arguments"] = fn_args_str
+                        except Exception:
+                            pass
+
                     # Intercept if approval is required
                     if self.dispatcher.requires_approval(fn_name):
                         try:
@@ -165,7 +197,7 @@ class Agent:
                         })
                         continue
 
-                    # Show the user what command is being run
+                    # Show the user what tool is being used
                     if fn_name == "run_command":
                         try:
                             cmd = json.loads(fn_args_str).get("command", "")
@@ -174,6 +206,20 @@ class Agent:
                             pass
                     elif fn_name == "run_script":
                         self._send(chat_id, "⚡ *Running script...*")
+                    elif fn_name == "search_web":
+                        try:
+                            args = json.loads(fn_args_str)
+                            qs = args.get("queries", [args.get("query", "")])
+                            self._send(chat_id, f"🔍 *Searching: {', '.join(qs[:3])}...*")
+                        except Exception:
+                            self._send(chat_id, "🔍 *Searching...*")
+                    elif fn_name == "read_webpage":
+                        try:
+                            url = json.loads(fn_args_str).get("url", "")
+                            short = url[:60] + "..." if len(url) > 60 else url
+                            self._send(chat_id, f"📄 *Reading: {short}*")
+                        except Exception:
+                            self._send(chat_id, "📄 *Reading webpage...*")
 
                     self.gateway.send_action(chat_id, "typing")
                     result = self.dispatcher.execute(fn_name, fn_args_str)

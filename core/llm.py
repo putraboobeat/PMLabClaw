@@ -14,20 +14,25 @@ from core.config import cfg
 
 
 # ============================================================
-# SYSTEM PROMPT — Padatkan semaksimal mungkin untuk hemat token
+# SYSTEM PROMPT
 # ============================================================
 SYSTEM_PROMPT = (
-    f"Kamu adalah {cfg.BOT_NAME}, asisten AI cerdas untuk VPS pribadi yang canggih layaknya model premium. "
-    "Gunakan bahasa Indonesia yang luwes, asyik, gaul, santai tapi tetap sopan. "
-    "ATURAN SANGAT PENTING: Jika permintaan user berisiko merusak sistem (seperti menghapus file, restart, dll) dan ambigu, kamu WAJIB bertanya balik untuk konfirmasi. "
-    "TAPI JIKA permintaan user bersifat aman seperti mencari berita/browsing, langsung saja eksekusi. "
-    "SKILL & INGATAN: Kamu memiliki skill web (http_request, search_web, read_webpage) untuk mencari data dan membaca artikel/dokumentasi. "
-    "WAJIB: Setiap kali user bertanya tentang informasi aktual, API, berita, atau fakta, kamu HARUS proaktif & agresif mencari data di internet. "
-    "Jangan hanya mencari satu query! Gunakan parameter `queries` (array) pada tool `search_web` untuk melakukan 3-4 pencarian berbeda sekaligus secara BERSAMAAN. "
-    "Setelah menemukan URL yang relevan dari hasil pencarian, kamu WAJIB menggunakan tool `read_webpage` untuk masuk ke halaman tersebut dan membaca konten aslinya secara mendalam. "
-    "JANGAN PERNAH menggunakan `run_command` dengan `curl` untuk mencari di Google! Gunakan HANYA tool `search_web` dan `read_webpage`. "
-    "Jika user menyuruhmu mengingat sesuatu secara permanen, SIMPANLAH catatan itu ke file teks via terminal. "
-    "Berikan jawaban yang komprehensif, mendalam, dan pakai emoji."
+    f"Kamu adalah {cfg.BOT_NAME}, asisten AI premium untuk VPS pribadi. "
+    "Bahasa: Indonesia gaul, santai, sopan, pakai emoji. "
+    "KEAMANAN: Jika perintah bisa merusak sistem (hapus file, restart service), WAJIB konfirmasi dulu. "
+
+    # --- TOOLS WAJIB ---
+    "TOOLS YANG KAMU MILIKI: search_web, read_webpage, http_request, run_command, dll. "
+    "ATURAN PENCARIAN WEB (SANGAT PENTING): "
+    "1) Setiap user tanya info/berita/fakta/API/dokumentasi → WAJIB panggil tool `search_web`. "
+    "2) Gunakan parameter `queries` (array) dengan 2-4 keyword berbeda untuk hasil komprehensif. "
+    "   Contoh: {\"queries\": [\"StarSender API documentation\", \"StarSender WhatsApp gateway setup\", \"StarSender API send message example\"]} "
+    "3) Setelah dapat hasil search, WAJIB panggil `read_webpage` untuk membaca isi halaman yang relevan. "
+    "4) DILARANG KERAS pakai `run_command` dengan `curl` untuk browsing/searching. Selalu pakai `search_web` dan `read_webpage`. "
+    "5) Jangan pernah bilang 'saya tidak bisa browsing' atau 'saya tidak punya akses internet'. KAMU BISA dan WAJIB pakai search_web. "
+
+    "INGATAN: Jika user minta ingat sesuatu, simpan ke file teks via run_command. "
+    "JAWABAN: Komprehensif, mendalam, berdasarkan data dari internet."
 )
 
 
@@ -188,7 +193,7 @@ class LLMClient:
                     })
                     i += 1
                 anthropic_msgs.append({"role": "user", "content": tool_results})
-                i -= 1 # Adjust loop counter
+                i -= 1  # Adjust loop counter
                 
             i += 1
 
@@ -228,54 +233,118 @@ class LLMClient:
                     choices = body.get("choices", [])
                     if not choices:
                         raise RuntimeError("LLM returned empty choices.")
-                    return choices[0].get("message", {})
+                    msg = choices[0].get("message", {})
+                    # Clean any raw <function> tags that leaked into content
+                    msg = self._clean_leaked_function_tags(msg)
+                    return msg
 
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="ignore")
             
-            # Groq bug workaround: If model generates text instead of tool call, Groq throws 400
-            # with the generated text inside 'failed_generation' or 'failedgeneration'.
-            if e.code == 400 and ("failedgeneration" in err_body or "failed_generation" in err_body):
-                try:
-                    err_json = json.loads(err_body)
-                    error_data = err_json.get("error", {})
-                    failed_text = error_data.get("failed_generation") or error_data.get("failedgeneration", "")
-                    if failed_text:
-                        import re
-                        # 1. Try to rescue broken tool calls that Groq failed to parse
-                        # Groq sometimes outputs: <function=tool_name>{"arg": "val"}</function>
-                        # Or even malformed: <function=tool_name,{"arg": "val"}</function>
-                        match = re.search(r"<function=([^>,\n]+)[>,](.*?)(?:</function>|<function>|$)", failed_text, flags=re.DOTALL)
-                        if match:
-                            args_str = match.group(2).strip()
-                            if args_str.endswith("</function"):
-                                args_str = args_str[:-11].strip()
-                            
-                            return {
-                                "role": "assistant",
-                                "content": None,
-                                "tool_calls": [{
-                                    "id": "call_groq_rescue",
-                                    "type": "function",
-                                    "function": {
-                                        "name": match.group(1).strip(),
-                                        "arguments": re.sub(r"^```(?:json)?|```$", "", args_str, flags=re.MULTILINE).strip() or "{}"
-                                    }
-                                }]
-                            }
-                        
-                        # 2. Otherwise just return the text
-                        clean_text = re.sub(r"<function=.*?>.*?(?:</function>|<function>|$)", "", failed_text, flags=re.DOTALL)
-                        if clean_text.strip():
-                            return {"role": "assistant", "content": clean_text.strip()}
-                        else:
-                            return {"role": "assistant", "content": "Baiklah! 🚀"}
-                except Exception:
-                    pass
+            # Groq bug workaround: Llama sometimes generates <function=...> tags 
+            # instead of proper JSON tool calls. Groq rejects these with a 400 error
+            # but includes the generated text in 'failed_generation'.
+            if e.code == 400 and ("failedgeneration" in err_body.lower() or "failed_generation" in err_body.lower()):
+                return self._rescue_failed_generation(err_body)
                     
             raise RuntimeError(f"LLM HTTP {e.code}: {err_body[:300]}")
         except Exception as e:
             raise RuntimeError(f"LLM request failed: {e}")
+
+    def _rescue_failed_generation(self, err_body: str) -> dict:
+        """
+        Rescue tool calls from Groq's failed_generation error.
+        Llama 3 sometimes outputs: <function=tool_name>{"arg": "val"}</function>
+        Groq rejects this but gives us the text. We parse ALL tool calls from it.
+        """
+        try:
+            err_json = json.loads(err_body)
+            error_data = err_json.get("error", {})
+            failed_text = error_data.get("failed_generation") or error_data.get("failedgeneration", "")
+            
+            if not failed_text:
+                return {"role": "assistant", "content": "Maaf, terjadi error. Coba lagi ya! 🙏"}
+
+            # Find ALL <function=name>{args}</function> blocks
+            pattern = re.compile(
+                r'<function=([^>]+)>(.*?)</function>',
+                re.DOTALL
+            )
+            matches = pattern.findall(failed_text)
+            
+            if matches:
+                tool_calls = []
+                for i, (fn_name, fn_args_raw) in enumerate(matches):
+                    fn_name = fn_name.strip().rstrip(',')
+                    fn_args = fn_args_raw.strip()
+                    # Clean markdown code blocks from args
+                    fn_args = re.sub(r'^```(?:json)?|```$', '', fn_args, flags=re.MULTILINE).strip()
+                    if not fn_args:
+                        fn_args = "{}"
+                    
+                    tool_calls.append({
+                        "id": f"call_rescue_{i}",
+                        "type": "function",
+                        "function": {
+                            "name": fn_name,
+                            "arguments": fn_args
+                        }
+                    })
+                
+                # Extract any text content outside the function tags
+                clean_text = pattern.sub('', failed_text).strip()
+                
+                result = {"role": "assistant", "tool_calls": tool_calls}
+                if clean_text:
+                    result["content"] = clean_text
+                return result
+            
+            # No function tags found — just return the text with tags cleaned
+            clean_text = re.sub(r'</?function[^>]*>', '', failed_text).strip()
+            if clean_text:
+                return {"role": "assistant", "content": clean_text}
+            else:
+                return {"role": "assistant", "content": "Baiklah! 🚀"}
+                
+        except Exception:
+            return {"role": "assistant", "content": "Maaf, ada error teknis. Coba lagi! 🔧"}
+
+    def _clean_leaked_function_tags(self, msg: dict) -> dict:
+        """
+        Clean any raw <function=...> tags that leaked into the content.
+        This happens when Groq returns 200 but with mixed content.
+        """
+        content = msg.get("content", "")
+        if not content or "<function=" not in content:
+            return msg
+        
+        # Try to rescue tool calls from leaked tags
+        pattern = re.compile(r'<function=([^>]+)>(.*?)</function>', re.DOTALL)
+        matches = pattern.findall(content)
+        
+        if matches:
+            existing_tool_calls = msg.get("tool_calls", [])
+            for i, (fn_name, fn_args_raw) in enumerate(matches):
+                fn_name = fn_name.strip().rstrip(',')
+                fn_args = fn_args_raw.strip()
+                fn_args = re.sub(r'^```(?:json)?|```$', '', fn_args, flags=re.MULTILINE).strip()
+                if not fn_args:
+                    fn_args = "{}"
+                
+                existing_tool_calls.append({
+                    "id": f"call_leaked_{i}",
+                    "type": "function",
+                    "function": {
+                        "name": fn_name,
+                        "arguments": fn_args
+                    }
+                })
+            
+            msg["tool_calls"] = existing_tool_calls
+            # Remove the function tags from content
+            msg["content"] = pattern.sub('', content).strip() or None
+        
+        return msg
 
     def _parse_anthropic_response(self, response_body: dict) -> dict:
         msg = {"role": "assistant", "content": None}
