@@ -64,16 +64,38 @@ class WebPlugin(PluginBase):
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "query": {
-                                "type": "string",
-                                "description": "The search query (e.g. 'latest AI news', 'bitcoin price')."
+                            "queries": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "List of search queries to execute simultaneously (e.g. ['latest AI news', 'bitcoin price'])."
                             },
                             "limit": {
                                 "type": "integer",
-                                "description": "Maximum number of results to return (default 5)."
+                                "description": "Maximum number of results to return per query (default 3)."
                             }
                         },
-                        "required": ["query"]
+                        "required": ["queries"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "read_webpage",
+                    "description": (
+                        "Read the textual content of a specific webpage URL. "
+                        "Use this to 'click' into a search result and read the full article or documentation. "
+                        "Returns the readable text from the page."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "url": {
+                                "type": "string",
+                                "description": "The full URL to read."
+                            }
+                        },
+                        "required": ["url"]
                     }
                 }
             }
@@ -88,10 +110,15 @@ class WebPlugin(PluginBase):
                 headers=args.get("headers", {})
             )
         elif tool_name == "search_web":
-            return self._search_web(
-                query=args.get("query", ""),
-                limit=args.get("limit", 5)
+            queries = args.get("queries", [])
+            if not queries and "query" in args:
+                queries = [args["query"]]
+            return self._search_web_multiple(
+                queries=queries,
+                limit=args.get("limit", 3)
             )
+        elif tool_name == "read_webpage":
+            return self._read_webpage(url=args.get("url", ""))
         return None
 
     def _http_request(self, url: str, method: str, body: str | None, headers: dict) -> str:
@@ -130,7 +157,17 @@ class WebPlugin(PluginBase):
         except Exception as e:
             return f"[Error] {e}"
 
-    def _search_web(self, query: str, limit: int = 5) -> str:
+    def _search_web_multiple(self, queries: list, limit: int = 3) -> str:
+        if not queries:
+            return "[Error] queries array is required."
+        
+        results = []
+        for q in queries:
+            res = self._search_web_single(q, limit)
+            results.append(res)
+        return "\n\n---\n\n".join(results)
+
+    def _search_web_single(self, query: str, limit: int = 3) -> str:
         """Search DuckDuckGo Lite via HTML scraping."""
         if not query:
             return "[Error] Query is required."
@@ -224,5 +261,66 @@ class WebPlugin(PluginBase):
                 return output
                 
         except Exception as e:
-            return f"[Error] Search failed: {e}"
+            return f"[Error] Search failed for '{query}': {e}"
+
+    def _read_webpage(self, url: str) -> str:
+        """Download webpage and extract readable text using basic HTML parsing."""
+        if not url:
+            return "[Error] URL is required."
+        
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            import ssl
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            
+            with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+                content_type = resp.headers.get("Content-Type", "")
+                raw = resp.read()
+                
+                if "charset=" in content_type.lower():
+                    charset = content_type.lower().split("charset=")[-1]
+                else:
+                    charset = "utf-8"
+                
+                try:
+                    html = raw.decode(charset, errors="ignore")
+                except:
+                    html = raw.decode("utf-8", errors="ignore")
+                
+                from html.parser import HTMLParser
+                class TextExtractor(HTMLParser):
+                    def __init__(self):
+                        super().__init__()
+                        self.text = []
+                        self.ignore = False
+                        self.ignore_tags = {'script', 'style', 'noscript', 'meta', 'link', 'head'}
+                    def handle_starttag(self, tag, attrs):
+                        if tag in self.ignore_tags:
+                            self.ignore = True
+                    def handle_endtag(self, tag):
+                        if tag in self.ignore_tags:
+                            self.ignore = False
+                    def handle_data(self, data):
+                        if not self.ignore:
+                            cleaned = data.strip()
+                            if cleaned:
+                                self.text.append(cleaned)
+                
+                parser = TextExtractor()
+                parser.feed(html)
+                
+                text_content = "\n".join(parser.text)
+                # Truncate if insanely large to save tokens
+                if len(text_content) > 15000:
+                    text_content = text_content[:15000] + "\n\n...[TRUNCATED]"
+                    
+                return f"--- CONTENT FOR {url} ---\n\n{text_content}"
+                
+        except urllib.error.HTTPError as e:
+            return f"[Error] HTTP {e.code}: {e.reason}"
+        except Exception as e:
+            return f"[Error] Failed to read webpage: {e}"
 
