@@ -240,8 +240,14 @@ class LLMClient:
                     if failed_text:
                         import re
                         # 1. Try to rescue broken tool calls that Groq failed to parse
-                        match = re.search(r"<function=(.*?)>(.*?)(?:</function>|<function>|$)", failed_text, flags=re.DOTALL)
+                        # Groq sometimes outputs: <function=tool_name>{"arg": "val"}</function>
+                        # Or even malformed: <function=tool_name,{"arg": "val"}</function>
+                        match = re.search(r"<function=([^>,\n]+)[>,](.*?)(?:</function>|<function>|$)", failed_text, flags=re.DOTALL)
                         if match:
+                            args_str = match.group(2).strip()
+                            if args_str.endswith("</function"):
+                                args_str = args_str[:-11].strip()
+                            
                             return {
                                 "role": "assistant",
                                 "content": None,
@@ -249,8 +255,8 @@ class LLMClient:
                                     "id": "call_groq_rescue",
                                     "type": "function",
                                     "function": {
-                                        "name": match.group(1),
-                                        "arguments": re.sub(r"^```(?:json)?|```$", "", match.group(2).strip(), flags=re.MULTILINE).strip()
+                                        "name": match.group(1).strip(),
+                                        "arguments": re.sub(r"^```(?:json)?|```$", "", args_str, flags=re.MULTILINE).strip() or "{}"
                                     }
                                 }]
                             }
