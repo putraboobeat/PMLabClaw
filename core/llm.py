@@ -24,13 +24,12 @@ SYSTEM_PROMPT = (
     # --- TOOLS WAJIB ---
     "TOOLS YANG KAMU MILIKI: search_web, read_webpage, http_request, run_command, dll. "
     "ATURAN PENGGUNAAN TOOLS (SANGAT PENTING): "
-    "1) Jika user minta cari informasi, JANGAN HANYA MENJAWAB 'saya akan mencari'. KAMU WAJIB LANGSUNG MEMANGGIL TOOL `search_web`. "
+    "1) Jika user minta cari informasi/fakta/berita, WAJIB panggil tool `search_web`. "
     "2) Gunakan parameter `queries` (array) dengan 2-4 keyword berbeda untuk hasil komprehensif. "
     "   Contoh: {\"queries\": [\"StarSender API documentation\", \"StarSender WhatsApp gateway setup\", \"StarSender API send message example\"]} "
     "3) Setelah dapat hasil search, WAJIB panggil `read_webpage` untuk membaca isi halaman yang relevan. "
     "4) DILARANG KERAS pakai `run_command` dengan `curl` untuk browsing/searching. Selalu pakai `search_web` dan `read_webpage`. "
     "5) Jangan pernah bilang 'saya tidak bisa browsing' atau 'saya tidak punya akses internet'. KAMU BISA dan WAJIB pakai search_web. "
-    "6) JANGAN MENGATAKAN APA YANG AKAN KAMU LAKUKAN, LANGSUNG LAKUKAN SAJA MENGGUNAKAN TOOL. "
 
     "INGATAN: Jika user minta ingat sesuatu, simpan ke file teks via run_command. "
     "JAWABAN: Komprehensif, mendalam, berdasarkan data dari internet."
@@ -286,7 +285,8 @@ class LLMClient:
             if clean_text:
                 return {"role": "assistant", "content": clean_text}
             else:
-                return {"role": "assistant", "content": "Baiklah! 🚀"}
+                print("[LLM] WARNING: Rescue failed because clean_text is empty.")
+                return {"role": "assistant", "content": "Mohon maaf, format instruksi sistem internal error. Mohon kirim ulang perintah Anda."}
                 
         except Exception:
             return {"role": "assistant", "content": "Maaf, ada error teknis. Coba lagi! 🔧"}
