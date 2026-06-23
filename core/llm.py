@@ -267,8 +267,10 @@ class LLMClient:
             failed_text = error_data.get("failed_generation") or error_data.get("failedgeneration", "")
             
             if not failed_text:
+                print(f"[LLM] FAILED GENERATION: {err_body}")
                 return {"role": "assistant", "content": "Maaf, terjadi error. Coba lagi ya! 🙏"}
-
+            
+            print(f"[LLM] RESCUING FAILED GENERATION: {failed_text}")
             tool_calls = self._extract_function_tags(failed_text)
             
             if tool_calls:
