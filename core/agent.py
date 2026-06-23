@@ -237,6 +237,12 @@ class Agent:
             # ── Branch B: LLM gives a final text answer ──
             else:
                 final = message.get("content", "").strip()
+                # Safety: strip any leaked function tags before sending to user
+                if final:
+                    import re
+                    final = re.sub(r'<function[=(][^>)]+[)>]>.*?</function>', '', final, flags=re.DOTALL | re.IGNORECASE)
+                    final = re.sub(r'</?function[^>]*>', '', final, flags=re.IGNORECASE)
+                    final = final.strip()
                 if final:
                     self.history.append({"role": "assistant", "content": final})
                     self._trim_history()
@@ -257,7 +263,14 @@ class Agent:
     # ---- Helpers ----
 
     def _send(self, chat_id, text: str) -> None:
-        self.gateway.send_message(chat_id, text)
+        # Final safety net: never send raw function tags to user
+        import re
+        if "<function" in text.lower():
+            text = re.sub(r'<function[=(][^>)]+[)>]>.*?</function>', '', text, flags=re.DOTALL | re.IGNORECASE)
+            text = re.sub(r'</?function[^>]*>', '', text, flags=re.IGNORECASE)
+            text = text.strip()
+        if text:
+            self.gateway.send_message(chat_id, text)
 
     def _reset_history(self) -> None:
         self.history = []

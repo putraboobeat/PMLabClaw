@@ -254,8 +254,11 @@ class LLMClient:
     def _rescue_failed_generation(self, err_body: str) -> dict:
         """
         Rescue tool calls from Groq's failed_generation error.
-        Llama 3 sometimes outputs: <function=tool_name>{"arg": "val"}</function>
-        Groq rejects this but gives us the text. We parse ALL tool calls from it.
+        Llama 3 outputs various formats:
+          - <function=tool_name>{"arg": "val"}</function>
+          - <function(tool_name)>{"arg": "val"}</function>
+          - <function(toolname)>{"arg": "val"}</function>
+        Groq rejects these but gives us the text. We parse ALL tool calls.
         """
         try:
             err_json = json.loads(err_body)
@@ -265,42 +268,18 @@ class LLMClient:
             if not failed_text:
                 return {"role": "assistant", "content": "Maaf, terjadi error. Coba lagi ya! 🙏"}
 
-            # Find ALL <function=name>{args}</function> blocks
-            pattern = re.compile(
-                r'<function=([^>]+)>(.*?)</function>',
-                re.DOTALL
-            )
-            matches = pattern.findall(failed_text)
+            tool_calls = self._extract_function_tags(failed_text)
             
-            if matches:
-                tool_calls = []
-                for i, (fn_name, fn_args_raw) in enumerate(matches):
-                    fn_name = fn_name.strip().rstrip(',')
-                    fn_args = fn_args_raw.strip()
-                    # Clean markdown code blocks from args
-                    fn_args = re.sub(r'^```(?:json)?|```$', '', fn_args, flags=re.MULTILINE).strip()
-                    if not fn_args:
-                        fn_args = "{}"
-                    
-                    tool_calls.append({
-                        "id": f"call_rescue_{i}",
-                        "type": "function",
-                        "function": {
-                            "name": fn_name,
-                            "arguments": fn_args
-                        }
-                    })
-                
-                # Extract any text content outside the function tags
-                clean_text = pattern.sub('', failed_text).strip()
-                
+            if tool_calls:
+                # Remove function tags from text to get clean content
+                clean_text = self._strip_all_function_tags(failed_text).strip()
                 result = {"role": "assistant", "tool_calls": tool_calls}
                 if clean_text:
                     result["content"] = clean_text
                 return result
             
-            # No function tags found — just return the text with tags cleaned
-            clean_text = re.sub(r'</?function[^>]*>', '', failed_text).strip()
+            # No function tags found — return cleaned text
+            clean_text = self._strip_all_function_tags(failed_text).strip()
             if clean_text:
                 return {"role": "assistant", "content": clean_text}
             else:
@@ -311,40 +290,96 @@ class LLMClient:
 
     def _clean_leaked_function_tags(self, msg: dict) -> dict:
         """
-        Clean any raw <function=...> tags that leaked into the content.
-        This happens when Groq returns 200 but with mixed content.
+        Clean any raw <function> tags that leaked into content.
+        This happens when Groq returns 200 but model mixed text with function calls.
         """
         content = msg.get("content", "")
-        if not content or "<function=" not in content:
+        if not content or "<function" not in content.lower():
             return msg
         
-        # Try to rescue tool calls from leaked tags
-        pattern = re.compile(r'<function=([^>]+)>(.*?)</function>', re.DOTALL)
-        matches = pattern.findall(content)
+        rescued = self._extract_function_tags(content)
         
-        if matches:
-            existing_tool_calls = msg.get("tool_calls", [])
-            for i, (fn_name, fn_args_raw) in enumerate(matches):
-                fn_name = fn_name.strip().rstrip(',')
-                fn_args = fn_args_raw.strip()
-                fn_args = re.sub(r'^```(?:json)?|```$', '', fn_args, flags=re.MULTILINE).strip()
-                if not fn_args:
-                    fn_args = "{}"
-                
-                existing_tool_calls.append({
-                    "id": f"call_leaked_{i}",
-                    "type": "function",
-                    "function": {
-                        "name": fn_name,
-                        "arguments": fn_args
-                    }
-                })
-            
-            msg["tool_calls"] = existing_tool_calls
-            # Remove the function tags from content
-            msg["content"] = pattern.sub('', content).strip() or None
+        if rescued:
+            existing = msg.get("tool_calls", [])
+            existing.extend(rescued)
+            msg["tool_calls"] = existing
+            msg["content"] = self._strip_all_function_tags(content).strip() or None
         
         return msg
+
+    def _extract_function_tags(self, text: str) -> list:
+        """
+        Extract ALL function call tags from text, supporting every Llama format:
+          <function=name>{...}</function>
+          <function(name)>{...}</function>  
+          <function(name)>{...}</function>
+        """
+        tool_calls = []
+        
+        # Pattern 1: <function=name>{args}</function>
+        # Pattern 2: <function(name)>{args}</function>
+        # Combined pattern handles both
+        pattern = re.compile(
+            r'<function[=(]([^>)]+)[)>]>(.*?)</function>',
+            re.DOTALL | re.IGNORECASE
+        )
+        
+        matches = pattern.findall(text)
+        for i, (fn_name_raw, fn_args_raw) in enumerate(matches):
+            fn_name = self._normalize_tool_name(fn_name_raw.strip().rstrip(','))
+            fn_args = fn_args_raw.strip()
+            fn_args = re.sub(r'^```(?:json)?|```$', '', fn_args, flags=re.MULTILINE).strip()
+            if not fn_args:
+                fn_args = "{}"
+            
+            tool_calls.append({
+                "id": f"call_rescue_{i}",
+                "type": "function",
+                "function": {
+                    "name": fn_name,
+                    "arguments": fn_args
+                }
+            })
+        
+        return tool_calls
+
+    def _strip_all_function_tags(self, text: str) -> str:
+        """Remove ALL function tag variants from text."""
+        text = re.sub(r'<function[=(][^>)]+[)>]>.*?</function>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'</?function[^>]*>', '', text, flags=re.IGNORECASE)
+        return text.strip()
+
+    @staticmethod
+    def _normalize_tool_name(name: str) -> str:
+        """
+        Normalize tool names — Llama often strips underscores.
+        runcommand → run_command, searchweb → search_web, etc.
+        """
+        known_tools = {
+            "runcommand": "run_command",
+            "run_command": "run_command",
+            "searchwebpage": "search_web",
+            "searchweb": "search_web",
+            "search_web": "search_web",
+            "readwebpage": "read_webpage",
+            "read_webpage": "read_webpage",
+            "readweb": "read_webpage",
+            "httprequest": "http_request",
+            "http_request": "http_request",
+            "runscript": "run_script",
+            "run_script": "run_script",
+            "getsystemstatus": "get_system_status",
+            "get_system_status": "get_system_status",
+            "readfile": "read_file",
+            "read_file": "read_file",
+            "writefile": "write_file",
+            "write_file": "write_file",
+            "listfiles": "list_files",
+            "list_files": "list_files",
+            "sendmessage": "send_message",
+            "send_message": "send_message",
+        }
+        return known_tools.get(name.lower(), name)
 
     def _parse_anthropic_response(self, response_body: dict) -> dict:
         msg = {"role": "assistant", "content": None}
@@ -369,3 +404,4 @@ class LLMClient:
             msg["tool_calls"] = tool_calls
             
         return msg
+
